@@ -144,6 +144,7 @@ function handleUpload($file, $subFolder = 'uploads', $allowedTypes = ['image/jpe
     if (!move_uploaded_file($file['tmp_name'], $targetFile)) {
         return ['success' => false, 'error' => 'Gagal memindahkan file yang diunggah.'];
     }
+    @chmod($targetFile, 0666);
 
     $relativePath = trim(str_replace('\\', '/', $subFolder), '/') . '/' . $uniqueName;
     return ['success' => true, 'filename' => $relativePath];

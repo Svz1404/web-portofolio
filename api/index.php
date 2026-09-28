@@ -1,4 +1,7 @@
 <?php
+if (!ob_get_level()) {
+    ob_start();
+}
 /**
  * Vercel Serverless Entry Point & Router
  * Routes requests to index.php, cv.php, and admin pages
