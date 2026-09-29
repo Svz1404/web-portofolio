@@ -205,5 +205,6 @@ $experiences = $db->query("SELECT * FROM experience ORDER BY sort_order ASC, id 
     </div>
   </div>
 
+  <script src="<?= base_url('assets/js/main.js') ?>"></script>
 </body>
 </html>

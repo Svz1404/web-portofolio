@@ -7,7 +7,7 @@ $db = Database::getConnection();
 $contactSuccess = false;
 $contactError = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_message'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['send_message'])) {
     $name = clean_input($_POST['name'] ?? '');
     $email = clean_input($_POST['email'] ?? '');
     $subject = clean_input($_POST['subject'] ?? '');
