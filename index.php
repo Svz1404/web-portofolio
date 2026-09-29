@@ -300,7 +300,14 @@ include __DIR__ . '/includes/header.php';
           <?php foreach ($skills as $s): ?>
             <div class="skill-row">
               <div class="skill-info">
-                <span><i class="fas fa-circle" style="font-size: 0.45rem; color: #0284c7; vertical-align: middle; margin-right: 6px;"></i> <?= sanitize($s['name']) ?></span>
+                <span>
+                  <?php if (!empty($s['image'])): ?>
+                    <img src="<?= base_url($s['image']) ?>" alt="" style="width: 18px; height: 18px; object-fit: contain; vertical-align: middle; margin-right: 6px; border-radius: 3px;">
+                  <?php else: ?>
+                    <i class="fas fa-circle" style="font-size: 0.45rem; color: #0284c7; vertical-align: middle; margin-right: 6px;"></i>
+                  <?php endif; ?>
+                  <?= sanitize($s['name']) ?>
+                </span>
                 <span class="skill-percent"><?= (int)$s['percentage'] ?>%</span>
               </div>
               <div class="skill-bar-bg">
@@ -374,6 +381,11 @@ include __DIR__ . '/includes/header.php';
                 <span class="timeline-date"><?= sanitize($lexp['date_range']) ?></span>
                 <h4 class="timeline-company"><?= sanitize($lexp['company']) ?></h4>
                 <div class="timeline-role"><?= sanitize($lexp['role']) ?></div>
+                <?php if (!empty($exp['image'])): ?>
+                  <div style="margin: 0.6rem 0;">
+                    <img src="<?= base_url($exp['image']) ?>" alt="<?= sanitize($lexp['company']) ?>" style="max-height: 48px; border-radius: 6px; border: 1px solid #e2e8f0; object-fit: contain; background: #fff; padding: 2px;">
+                  </div>
+                <?php endif; ?>
                 <div class="timeline-desc"><?= nl2br(sanitize($lexp['details'])) ?></div>
               </div>
             <?php endforeach; ?>
@@ -396,6 +408,11 @@ include __DIR__ . '/includes/header.php';
                 </span>
                 <h4 class="timeline-company"><?= sanitize($ledu['institution']) ?></h4>
                 <div class="timeline-role" style="color: #0284c7;"><?= sanitize($ledu['major']) ?></div>
+                <?php if (!empty($edu['image'])): ?>
+                  <div style="margin: 0.6rem 0;">
+                    <img src="<?= base_url($edu['image']) ?>" alt="<?= sanitize($ledu['institution']) ?>" style="max-height: 48px; border-radius: 6px; border: 1px solid #e2e8f0; object-fit: contain; background: #fff; padding: 2px;">
+                  </div>
+                <?php endif; ?>
               </div>
             <?php endforeach; ?>
           </div>

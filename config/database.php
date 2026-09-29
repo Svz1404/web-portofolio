@@ -218,6 +218,17 @@ class Database {
             $db->exec("CREATE INDEX IF NOT EXISTS idx_certificate_images_cid ON certificate_images (certificate_id)");
         } catch (Exception $e) {}
 
+        // Ensure image column exists for experience, education, and skills
+        try {
+            $db->exec("ALTER TABLE experience ADD COLUMN image TEXT");
+        } catch (Exception $e) {}
+        try {
+            $db->exec("ALTER TABLE education ADD COLUMN image TEXT");
+        } catch (Exception $e) {}
+        try {
+            $db->exec("ALTER TABLE skills ADD COLUMN image TEXT");
+        } catch (Exception $e) {}
+
         // Seed Admin if not exists
         $adminCheck = $db->query("SELECT COUNT(*) as count FROM admins")->fetch();
         if ($adminCheck['count'] == 0) {

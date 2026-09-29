@@ -7,6 +7,13 @@ $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 // DELETE
 if ($action === 'delete' && $id > 0) {
+    $stmtC = $db->prepare("SELECT image FROM skills WHERE id = ? LIMIT 1");
+    $stmtC->execute([$id]);
+    $item = $stmtC->fetch();
+    if ($item && !empty($item['image']) && strpos($item['image'], 'uploads/') === 0 && file_exists(BASE_DIR . $item['image'])) {
+        @unlink(BASE_DIR . $item['image']);
+    }
+
     $stmt = $db->prepare("DELETE FROM skills WHERE id = ?");
     $stmt->execute([$id]);
     setFlash('success', 'Skill / Bahasa berhasil dihapus!');
@@ -19,17 +26,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $percentage = min(100, max(1, (int)($_POST['percentage'] ?? 100)));
     $category = clean_input($_POST['category'] ?? 'skill');
     $sort_order = (int)($_POST['sort_order'] ?? 0);
+    $existingImage = $_POST['existing_image'] ?? '';
 
     if (empty($name)) {
         setFlash('danger', 'Nama keahlian atau bahasa wajib diisi.');
     } else {
+        $imagePath = $existingImage;
+        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+            $uploadRes = handleUpload($_FILES['image'], 'uploads/skills');
+            if ($uploadRes['success']) {
+                $imagePath = $uploadRes['filename'];
+            } else {
+                setFlash('danger', $uploadRes['error']);
+                redirect('MrSvz1404/skills.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+            }
+        }
+
         if ($id > 0) {
-            $stmt = $db->prepare("UPDATE skills SET name = ?, percentage = ?, category = ?, sort_order = ? WHERE id = ?");
-            $stmt->execute([$name, $percentage, $category, $sort_order, $id]);
+            $stmt = $db->prepare("UPDATE skills SET name = ?, percentage = ?, category = ?, sort_order = ?, image = ? WHERE id = ?");
+            $stmt->execute([$name, $percentage, $category, $sort_order, $imagePath, $id]);
             setFlash('success', 'Skill berhasil diperbarui!');
         } else {
-            $stmt = $db->prepare("INSERT INTO skills (name, percentage, category, sort_order) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$name, $percentage, $category, $sort_order]);
+            $stmt = $db->prepare("INSERT INTO skills (name, percentage, category, sort_order, image) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$name, $percentage, $category, $sort_order, $imagePath]);
             setFlash('success', 'Skill baru berhasil ditambahkan!');
         }
         redirect('MrSvz1404/skills.php');
@@ -67,7 +86,9 @@ require_once __DIR__ . '/header.php';
     </div>
 
     <div class="admin-modal-body">
-      <form action="<?= base_url('MrSvz1404/skills.php' . ($action === 'edit' ? '?action=edit&id=' . $id : '?action=add')) ?>" method="POST">
+      <form action="<?= base_url('MrSvz1404/skills.php' . ($action === 'edit' ? '?action=edit&id=' . $id : '?action=add')) ?>" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="existing_image" value="<?= sanitize($currentItem['image'] ?? '') ?>">
+
         <div class="form-grid">
           <div class="admin-input-group">
             <label class="admin-label" for="name">Nama Keahlian / Bahasa *</label>
@@ -93,6 +114,19 @@ require_once __DIR__ . '/header.php';
             <label class="admin-label" for="sort_order">Urutan Tampil (Angka kecil tampil di atas)</label>
             <input type="number" id="sort_order" name="sort_order" class="admin-input" 
                    value="<?= (int)($currentItem['sort_order'] ?? 0) ?>">
+          </div>
+
+          <!-- Photo / Icon Upload -->
+          <div class="admin-input-group form-full">
+            <label class="admin-label" for="image">Foto / Ikon / Logo Badge Keahlian (Opsional)</label>
+            <input type="file" id="image" name="image" class="admin-input" accept="image/*" data-preview="skill-preview">
+            <small style="color: #64748b; font-size: 0.78rem;">Foto badge atau ikon penanda keahlian. Format: JPG, PNG, WEBP. Maks 5MB.</small>
+            
+            <div id="skill-preview" class="preview-box" style="<?= !empty($currentItem['image']) ? 'display:block;' : '' ?>">
+              <?php if (!empty($currentItem['image'])): ?>
+                <img src="<?= base_url($currentItem['image']) ?>" alt="Preview" style="max-height: 80px; object-fit: contain;">
+              <?php endif; ?>
+            </div>
           </div>
         </div>
 
@@ -122,6 +156,7 @@ require_once __DIR__ . '/header.php';
       <table class="admin-table">
         <thead>
           <tr>
+            <th style="width: 70px;">Ikon/Foto</th>
             <th>Keahlian / Bahasa</th>
             <th>Kategori</th>
             <th>Tingkat Penguasaan</th>
@@ -131,10 +166,19 @@ require_once __DIR__ . '/header.php';
         </thead>
         <tbody>
           <?php if (empty($skills)): ?>
-            <tr><td colspan="5" style="text-align: center; padding: 2rem;">Belum ada data skill.</td></tr>
+            <tr><td colspan="6" style="text-align: center; padding: 2rem;">Belum ada data skill.</td></tr>
           <?php else: ?>
             <?php foreach ($skills as $s): ?>
               <tr>
+                <td>
+                  <?php if (!empty($s['image'])): ?>
+                    <img src="<?= base_url($s['image']) ?>" class="table-img" alt="" style="width: 44px; height: 44px; object-fit: contain;">
+                  <?php else: ?>
+                    <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 1.1rem;">
+                      <i class="fas <?= $s['category'] === 'bahasa' ? 'fa-language' : 'fa-code' ?>"></i>
+                    </div>
+                  <?php endif; ?>
+                </td>
                 <td><strong><?= sanitize($s['name']) ?></strong></td>
                 <td>
                   <span class="badge-status <?= $s['category'] === 'bahasa' ? 'green' : 'blue' ?>">

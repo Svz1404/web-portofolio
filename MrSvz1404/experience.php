@@ -7,6 +7,13 @@ $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 // DELETE
 if ($action === 'delete' && $id > 0) {
+    $stmtC = $db->prepare("SELECT image FROM experience WHERE id = ? LIMIT 1");
+    $stmtC->execute([$id]);
+    $item = $stmtC->fetch();
+    if ($item && !empty($item['image']) && strpos($item['image'], 'uploads/') === 0 && file_exists(BASE_DIR . $item['image'])) {
+        @unlink(BASE_DIR . $item['image']);
+    }
+
     $stmt = $db->prepare("DELETE FROM experience WHERE id = ?");
     $stmt->execute([$id]);
     setFlash('success', 'Riwayat pengalaman kerja berhasil dihapus!');
@@ -23,24 +30,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $details = clean_input($_POST['details'] ?? '');
     $details_en = clean_input($_POST['details_en'] ?? '');
     $sort_order = (int)($_POST['sort_order'] ?? 0);
+    $existingImage = $_POST['existing_image'] ?? '';
 
     if (empty($date_range) || empty($company) || empty($role)) {
         setFlash('danger', 'Periode tanggal, Nama Perusahaan, dan Posisi/Role wajib diisi.');
     } else {
+        $imagePath = $existingImage;
+        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+            $uploadRes = handleUpload($_FILES['image'], 'uploads/experience');
+            if ($uploadRes['success']) {
+                $imagePath = $uploadRes['filename'];
+            } else {
+                setFlash('danger', $uploadRes['error']);
+                redirect('MrSvz1404/experience.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+            }
+        }
+
         if ($id > 0) {
             $stmt = $db->prepare("
                 UPDATE experience 
-                SET date_range = ?, date_range_en = ?, company = ?, role = ?, role_en = ?, details = ?, details_en = ?, sort_order = ? 
+                SET date_range = ?, date_range_en = ?, company = ?, role = ?, role_en = ?, details = ?, details_en = ?, sort_order = ?, image = ? 
                 WHERE id = ?
             ");
-            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $id]);
+            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath, $id]);
             setFlash('success', 'Pengalaman kerja berhasil diperbarui!');
         } else {
             $stmt = $db->prepare("
-                INSERT INTO experience (date_range, date_range_en, company, role, role_en, details, details_en, sort_order) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO experience (date_range, date_range_en, company, role, role_en, details, details_en, sort_order, image) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order]);
+            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath]);
             setFlash('success', 'Pengalaman kerja baru berhasil ditambahkan!');
         }
         redirect('MrSvz1404/experience.php');
@@ -78,7 +97,9 @@ require_once __DIR__ . '/header.php';
     </div>
 
     <div class="admin-modal-body">
-      <form action="<?= base_url('MrSvz1404/experience.php' . ($action === 'edit' ? '?action=edit&id=' . $id : '?action=add')) ?>" method="POST">
+      <form action="<?= base_url('MrSvz1404/experience.php' . ($action === 'edit' ? '?action=edit&id=' . $id : '?action=add')) ?>" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="existing_image" value="<?= sanitize($currentItem['image'] ?? '') ?>">
+
         <div class="form-grid">
           <div class="admin-input-group form-full">
             <label class="admin-label" for="company">Nama Perusahaan / Organisasi *</label>
@@ -115,6 +136,19 @@ require_once __DIR__ . '/header.php';
             <label class="admin-label" for="sort_order">Urutan Tampil (Angka kecil tampil di atas)</label>
             <input type="number" id="sort_order" name="sort_order" class="admin-input" 
                    value="<?= (int)($currentItem['sort_order'] ?? 0) ?>">
+          </div>
+
+          <!-- Photo / Company Logo Upload -->
+          <div class="admin-input-group form-full">
+            <label class="admin-label" for="image">Foto Dokumentasi Kerja / Logo Perusahaan (Opsional)</label>
+            <input type="file" id="image" name="image" class="admin-input" accept="image/*" data-preview="exp-preview">
+            <small style="color: #64748b; font-size: 0.78rem;">Foto dokumentasi saat bekerja atau logo tempat kerja. Format: JPG, PNG, WEBP. Maks 5MB.</small>
+            
+            <div id="exp-preview" class="preview-box" style="<?= !empty($currentItem['image']) ? 'display:block;' : '' ?>">
+              <?php if (!empty($currentItem['image'])): ?>
+                <img src="<?= base_url($currentItem['image']) ?>" alt="Preview" style="max-height: 80px; object-fit: contain;">
+              <?php endif; ?>
+            </div>
           </div>
 
           <div class="admin-input-group form-full">
@@ -156,6 +190,7 @@ require_once __DIR__ . '/header.php';
       <table class="admin-table">
         <thead>
           <tr>
+            <th style="width: 70px;">Foto/Logo</th>
             <th>Periode (ID / EN)</th>
             <th>Perusahaan</th>
             <th>Posisi / Role</th>
@@ -166,10 +201,19 @@ require_once __DIR__ . '/header.php';
         </thead>
         <tbody>
           <?php if (empty($experiences)): ?>
-            <tr><td colspan="6" style="text-align: center; padding: 2rem;">Belum ada pengalaman kerja.</td></tr>
+            <tr><td colspan="7" style="text-align: center; padding: 2rem;">Belum ada pengalaman kerja.</td></tr>
           <?php else: ?>
             <?php foreach ($experiences as $exp): ?>
               <tr>
+                <td>
+                  <?php if (!empty($exp['image'])): ?>
+                    <img src="<?= base_url($exp['image']) ?>" class="table-img" alt="" style="width: 44px; height: 44px; object-fit: contain;">
+                  <?php else: ?>
+                    <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 1.1rem;">
+                      <i class="fas fa-building"></i>
+                    </div>
+                  <?php endif; ?>
+                </td>
                 <td>
                   <strong><?= sanitize($exp['date_range']) ?></strong>
                   <?php if (!empty($exp['date_range_en'])): ?>
