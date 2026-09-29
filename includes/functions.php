@@ -27,7 +27,15 @@ function sanitize($data) {
 
 // Generate URL
 function base_url($path = '') {
-    return BASE_URL . ltrim($path, '/');
+    $cleanPath = ltrim($path, '/');
+    
+    // On Vercel, serve media uploads directly from GitHub Raw CDN for instant 100% reliable loading
+    $isVercel = !empty($_ENV['VERCEL']) || !empty($_SERVER['VERCEL']) || (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'vercel.app') !== false);
+    if ($isVercel && strpos($cleanPath, 'uploads/') === 0) {
+        return 'https://raw.githubusercontent.com/Svz1404/web-portofolio/main/' . $cleanPath;
+    }
+    
+    return BASE_URL . $cleanPath;
 }
 
 // Redirect

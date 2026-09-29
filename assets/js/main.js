@@ -2,6 +2,18 @@
  * Main Frontend JavaScript - Mas Putra Portfolio
  */
 
+// Image Error Auto-Recovery: Fallback to GitHub Raw CDN if an uploaded image fails to load
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'IMG') {
+    const src = e.target.getAttribute('src');
+    if (src && src.includes('/uploads/') && !src.includes('raw.githubusercontent.com')) {
+      const uploadIdx = src.indexOf('/uploads/');
+      const relPath = src.substring(uploadIdx);
+      e.target.src = 'https://raw.githubusercontent.com/Svz1404/web-portofolio/main' + relPath;
+    }
+  }
+}, true);
+
 document.addEventListener('DOMContentLoaded', function () {
   // Navbar scroll background effect
   const navbar = document.querySelector('.navbar-custom');

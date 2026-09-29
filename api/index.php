@@ -10,6 +10,37 @@ if (!ob_get_level()) {
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $path = parse_url($requestUri, PHP_URL_PATH) ?: '/';
 
+// If asking for uploaded media (/uploads/...)
+if (strpos($path, '/uploads/') === 0) {
+    $cleanPath = '/' . ltrim($path, '/');
+    $localFile = dirname(__DIR__) . $cleanPath;
+    
+    // 1. If physical file exists in local container, serve it directly
+    if (is_file($localFile)) {
+        $ext = strtolower(pathinfo($localFile, PATHINFO_EXTENSION));
+        $mimes = [
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png'  => 'image/png',
+            'gif'  => 'image/gif',
+            'webp' => 'image/webp',
+            'svg'  => 'image/svg+xml',
+            'pdf'  => 'application/pdf'
+        ];
+        $mime = $mimes[$ext] ?? 'application/octet-stream';
+        header('Content-Type: ' . $mime);
+        header('Cache-Control: public, max-age=31536000, immutable');
+        header('Content-Length: ' . filesize($localFile));
+        readfile($localFile);
+        exit;
+    }
+    
+    // 2. Fallback to GitHub Raw CDN (always available, fast, global CDN)
+    $githubRawUrl = 'https://raw.githubusercontent.com/Svz1404/web-portofolio/main' . $cleanPath;
+    header('Location: ' . $githubRawUrl, true, 302);
+    exit;
+}
+
 // If asking for root /
 if ($path === '/' || $path === '') {
     require __DIR__ . '/../index.php';
