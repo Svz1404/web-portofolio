@@ -15,8 +15,8 @@ if (!ob_get_level()) {
 }
 
 // Session setup
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    @session_start();
 }
 
 // Base URL Detection (Compatible with Localhost, HTTPS, Reverse Proxy, and Vercel)

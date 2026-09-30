@@ -8,8 +8,8 @@ if (!ob_get_level()) {
     ob_start();
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    @session_start();
 }
 
 // Early language detection before any HTML is sent
