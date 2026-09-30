@@ -94,6 +94,25 @@ function requireAuth() {
     }
 }
 
+// Upload error message helper
+function getUploadErrorMessage($errorCode) {
+    switch ($errorCode) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'Ukuran file foto melebihi batas server. Silakan gunakan foto yang lebih kecil.';
+        case UPLOAD_ERR_PARTIAL:
+            return 'File foto hanya terunggah sebagian. Silakan coba unggah kembali.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'Tidak ada file yang dipilih.';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Folder temporary di server tidak ditemukan.';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Gagal menulis file ke server. Sistem penyimpanan server bersifat Read-Only.';
+        default:
+            return 'Terjadi kesalahan saat mengunggah file (Kode Error: ' . $errorCode . ').';
+    }
+}
+
 // File Upload Helper
 function handleUpload($file, $subFolder = 'uploads', $allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']) {
     if (!isset($file['error']) || is_array($file['error'])) {
@@ -105,11 +124,11 @@ function handleUpload($file, $subFolder = 'uploads', $allowedTypes = ['image/jpe
     }
 
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        return ['success' => false, 'error' => 'Gagal upload file (Error Code: ' . $file['error'] . ')'];
+        return ['success' => false, 'error' => getUploadErrorMessage($file['error'])];
     }
 
-    if ($file['size'] > 5 * 1024 * 1024) { // 5MB limit
-        return ['success' => false, 'error' => 'Ukuran file maksimal 5MB.'];
+    if ($file['size'] > 10 * 1024 * 1024) { // 10MB limit
+        return ['success' => false, 'error' => 'Ukuran file maksimal 10MB.'];
     }
 
     $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
@@ -143,17 +162,29 @@ function handleUpload($file, $subFolder = 'uploads', $allowedTypes = ['image/jpe
         return ['success' => false, 'error' => 'Format file tidak sesuai ketentuan (MIME: ' . htmlspecialchars($mime, ENT_QUOTES, 'UTF-8') . ').'];
     }
 
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    $isLocalhost = in_array($host, ['localhost', '127.0.0.1']) || strpos($host, 'localhost:') === 0;
+    $isProduction = !$isLocalhost || !empty($_ENV['VERCEL']) || !empty($_SERVER['VERCEL']) || !empty($_SERVER['HTTP_X_VERCEL_ID']);
+
     $uniqueName = uniqid('file_', true) . '.' . $ext;
     $targetDir = BASE_DIR . trim($subFolder, '/\\') . DIRECTORY_SEPARATOR;
 
     if (!file_exists($targetDir)) {
-        mkdir($targetDir, 0777, true);
+        if (!@mkdir($targetDir, 0777, true)) {
+            if ($isProduction) {
+                return ['success' => false, 'error' => 'Server Vercel bersifat Read-Only. Penambahan data atau foto harus dilakukan di localhost (komputer lokal) lalu di-upload ke GitHub.'];
+            }
+            return ['success' => false, 'error' => 'Gagal membuat folder penyimpanan di server: ' . $subFolder];
+        }
     }
 
     $targetFile = $targetDir . $uniqueName;
 
-    if (!move_uploaded_file($file['tmp_name'], $targetFile)) {
-        return ['success' => false, 'error' => 'Gagal memindahkan file yang diunggah.'];
+    if (!@move_uploaded_file($file['tmp_name'], $targetFile)) {
+        if ($isProduction) {
+            return ['success' => false, 'error' => 'Server Vercel bersifat Read-Only. Penambahan data atau foto harus dilakukan di localhost (komputer lokal) lalu di-upload ke GitHub.'];
+        }
+        return ['success' => false, 'error' => 'Gagal memindahkan file yang diunggah ke folder penyimpanan.'];
     }
     @chmod($targetFile, 0666);
 

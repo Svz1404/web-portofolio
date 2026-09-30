@@ -133,6 +133,21 @@ $flash = getFlash();
     </header>
 
     <div class="admin-content">
+      <?php
+        $adminHost = $_SERVER['HTTP_HOST'] ?? '';
+        $isAdminLocalhost = in_array($adminHost, ['localhost', '127.0.0.1']) || strpos($adminHost, 'localhost:') === 0;
+        $isAdminProduction = !$isAdminLocalhost || !empty($_ENV['VERCEL']) || !empty($_SERVER['VERCEL']) || !empty($_SERVER['HTTP_X_VERCEL_ID']);
+      ?>
+      <?php if ($isAdminProduction): ?>
+        <div class="alert-banner warning" style="background: #fffbeb; border: 1.5px solid #fcd34d; color: #92400e; margin-bottom: 1.25rem; display: flex; align-items: flex-start; gap: 0.85rem; padding: 1rem 1.25rem; border-radius: 10px;">
+          <i class="fas fa-exclamation-triangle" style="font-size: 1.25rem; color: #d97706; margin-top: 2px;"></i>
+          <div style="font-size: 0.88rem; line-height: 1.5;">
+            <strong style="font-size: 0.95rem; color: #b45309; display: block; margin-bottom: 3px;">Perhatian: Anda sedang membuka Admin Panel di Hosting Online (Vercel / masputra.xyz)</strong>
+            Server cloud Vercel bersifat <em>Read-Only</em> (hanya baca). Untuk menambah / mengedit proyek, sertifikat, atau upload foto baru, silakan lakukan di <strong>komputer lokal Anda (<a href="http://localhost/MasPutra/MrSvz1404/" target="_blank" style="color: #b45309; text-decoration: underline; font-weight: 700;">http://localhost/MasPutra/MrSvz1404/</a>)</strong>, lalu upload perubahannya ke GitHub agar otomatis terpasang di website online.
+          </div>
+        </div>
+      <?php endif; ?>
+
       <?php if ($flash): ?>
         <div class="alert-banner <?= $flash['type'] ?>">
           <i class="fas <?= $flash['type'] === 'success' ? 'fa-check-circle' : ($flash['type'] === 'danger' ? 'fa-exclamation-circle' : 'fa-info-circle') ?>"></i>

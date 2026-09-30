@@ -20,8 +20,16 @@ if ($action === 'delete' && $id > 0) {
     redirect('MrSvz1404/education.php');
 }
 
+$currentItem = null;
+
+// Handle post_max_size exceeded (PHP drops $_POST and $_FILES)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 0) {
+    setFlash('danger', 'Ukuran total file yang diunggah melebihi batas maksimal server. Silakan unggah foto dengan ukuran lebih kecil.');
+    $action = ($id > 0 ? 'edit' : 'add');
+}
+
 // SAVE
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST)) {
     $year_range = clean_input($_POST['year_range'] ?? '');
     $institution = clean_input($_POST['institution'] ?? '');
     $major = clean_input($_POST['major'] ?? '');
@@ -29,42 +37,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sort_order = (int)($_POST['sort_order'] ?? 0);
     $existingImage = $_POST['existing_image'] ?? '';
 
+    // Preserve form input in case of validation or upload errors
+    $currentItem = [
+        'id' => $id,
+        'year_range' => $year_range,
+        'institution' => $institution,
+        'major' => $major,
+        'major_en' => $major_en,
+        'sort_order' => $sort_order,
+        'image' => $existingImage
+    ];
+
+    $hasError = false;
+
     if (empty($year_range) || empty($institution) || empty($major)) {
         setFlash('danger', 'Tahun, Nama Institusi, dan Jurusan/Bidang Pelatihan wajib diisi.');
+        $hasError = true;
     } else {
         $imagePath = $existingImage;
-        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $uploadRes = handleUpload($_FILES['image'], 'uploads/education');
-            if ($uploadRes['success']) {
-                $imagePath = $uploadRes['filename'];
+        if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                setFlash('danger', 'Gagal upload foto lampiran: ' . getUploadErrorMessage($_FILES['image']['error']));
+                $hasError = true;
             } else {
-                setFlash('danger', $uploadRes['error']);
-                redirect('MrSvz1404/education.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+                $uploadRes = handleUpload($_FILES['image'], 'uploads/education');
+                if ($uploadRes['success']) {
+                    $imagePath = $uploadRes['filename'];
+                    $currentItem['image'] = $imagePath;
+                } else {
+                    setFlash('danger', 'Gagal upload foto lampiran: ' . $uploadRes['error']);
+                    $hasError = true;
+                }
             }
         }
 
-        if ($id > 0) {
-            $stmt = $db->prepare("UPDATE education SET year_range = ?, institution = ?, major = ?, major_en = ?, sort_order = ?, image = ? WHERE id = ?");
-            $stmt->execute([$year_range, $institution, $major, $major_en, $sort_order, $imagePath, $id]);
-            setFlash('success', 'Riwayat pendidikan berhasil diperbarui!');
+        if (!$hasError) {
+            if ($id > 0) {
+                $stmt = $db->prepare("UPDATE education SET year_range = ?, institution = ?, major = ?, major_en = ?, sort_order = ?, image = ? WHERE id = ?");
+                $stmt->execute([$year_range, $institution, $major, $major_en, $sort_order, $imagePath, $id]);
+                setFlash('success', 'Riwayat pendidikan berhasil diperbarui!');
+            } else {
+                $stmt = $db->prepare("INSERT INTO education (year_range, institution, major, major_en, sort_order, image) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$year_range, $institution, $major, $major_en, $sort_order, $imagePath]);
+                setFlash('success', 'Riwayat pendidikan baru berhasil ditambahkan!');
+            }
+            redirect('MrSvz1404/education.php');
         } else {
-            $stmt = $db->prepare("INSERT INTO education (year_range, institution, major, major_en, sort_order, image) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$year_range, $institution, $major, $major_en, $sort_order, $imagePath]);
-            setFlash('success', 'Riwayat pendidikan baru berhasil ditambahkan!');
+            $action = ($id > 0 ? 'edit' : 'add');
         }
-        redirect('MrSvz1404/education.php');
     }
 }
 
 // Fetch current
-$currentItem = null;
 if ($action === 'edit' && $id > 0) {
-    $stmt = $db->prepare("SELECT * FROM education WHERE id = ? LIMIT 1");
-    $stmt->execute([$id]);
-    $currentItem = $stmt->fetch();
-    if (!$currentItem) {
-        setFlash('danger', 'Data pendidikan tidak ditemukan.');
-        redirect('MrSvz1404/education.php');
+    if ($currentItem === null) {
+        $stmt = $db->prepare("SELECT * FROM education WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $currentItem = $stmt->fetch();
+        if (!$currentItem) {
+            setFlash('danger', 'Data pendidikan tidak ditemukan.');
+            redirect('MrSvz1404/education.php');
+        }
     }
 }
 

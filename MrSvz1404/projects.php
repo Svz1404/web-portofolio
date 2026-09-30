@@ -74,8 +74,17 @@ if ($action === 'delete_all') {
     redirect('MrSvz1404/projects.php');
 }
 
+$currentItem = null;
+$galleryImages = [];
+
+// Handle post_max_size exceeded (PHP drops $_POST and $_FILES)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 0) {
+    setFlash('danger', 'Ukuran total file yang diunggah melebihi batas maksimal server. Silakan unggah foto dengan ukuran lebih kecil.');
+    $action = ($id > 0 ? 'edit' : 'add');
+}
+
 // SAVE (ADD or EDIT)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST)) {
     $title = clean_input($_POST['title'] ?? '');
     $title_en = clean_input($_POST['title_en'] ?? '');
     $category = clean_input($_POST['category'] ?? '');
@@ -90,90 +99,119 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($title_en)) $title_en = $title;
     if (empty($description_en)) $description_en = $description;
 
+    // Preserve form input in case of validation or upload errors
+    $currentItem = [
+        'id' => $id,
+        'title' => $title,
+        'title_en' => $title_en,
+        'category' => $category,
+        'description' => $description,
+        'description_en' => $description_en,
+        'tech_stack' => $tech_stack,
+        'live_url' => $live_url,
+        'github_url' => $github_url,
+        'sort_order' => $sort_order,
+        'image' => $existingImage
+    ];
+
+    $hasError = false;
+
     if (empty($title) || empty($category)) {
         setFlash('danger', 'Judul proyek dan Kategori wajib diisi.');
+        $hasError = true;
     } else {
         $imagePath = $existingImage;
 
         // Check if new cover image uploaded
-        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $uploadRes = handleUpload($_FILES['image'], 'uploads/projects');
-            if ($uploadRes['success']) {
-                $imagePath = $uploadRes['filename'];
+        if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                setFlash('danger', 'Gagal upload foto cover: ' . getUploadErrorMessage($_FILES['image']['error']));
+                $hasError = true;
             } else {
-                setFlash('danger', $uploadRes['error']);
-                redirect('MrSvz1404/projects.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+                $uploadRes = handleUpload($_FILES['image'], 'uploads/projects');
+                if ($uploadRes['success']) {
+                    $imagePath = $uploadRes['filename'];
+                    $currentItem['image'] = $imagePath;
+                } else {
+                    setFlash('danger', 'Gagal upload foto cover: ' . $uploadRes['error']);
+                    $hasError = true;
+                }
             }
         }
 
-        if ($id > 0) {
-            // Update
-            $stmt = $db->prepare("
-                UPDATE projects 
-                SET title = ?, title_en = ?, category = ?, description = ?, description_en = ?, tech_stack = ?, live_url = ?, github_url = ?, image = ?, sort_order = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$title, $title_en, $category, $description, $description_en, $tech_stack, $live_url, $github_url, $imagePath, $sort_order, $id]);
-            $projectId = $id;
-            $flashMsg = 'Project berhasil diperbarui!';
-        } else {
-            // Insert
-            $stmt = $db->prepare("
-                INSERT INTO projects (title, title_en, category, description, description_en, tech_stack, live_url, github_url, image, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([$title, $title_en, $category, $description, $description_en, $tech_stack, $live_url, $github_url, $imagePath, $sort_order]);
-            $projectId = (int)$db->lastInsertId();
-            $flashMsg = 'Project baru berhasil ditambahkan!';
-        }
+        if (!$hasError) {
+            if ($id > 0) {
+                // Update
+                $stmt = $db->prepare("
+                    UPDATE projects 
+                    SET title = ?, title_en = ?, category = ?, description = ?, description_en = ?, tech_stack = ?, live_url = ?, github_url = ?, image = ?, sort_order = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $title_en, $category, $description, $description_en, $tech_stack, $live_url, $github_url, $imagePath, $sort_order, $id]);
+                $projectId = $id;
+                $flashMsg = 'Project berhasil diperbarui!';
+            } else {
+                // Insert
+                $stmt = $db->prepare("
+                    INSERT INTO projects (title, title_en, category, description, description_en, tech_stack, live_url, github_url, image, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([$title, $title_en, $category, $description, $description_en, $tech_stack, $live_url, $github_url, $imagePath, $sort_order]);
+                $projectId = (int)$db->lastInsertId();
+                $flashMsg = 'Project baru berhasil ditambahkan!';
+            }
 
-        // Process multiple gallery uploads
-        if (isset($_FILES['gallery']) && is_array($_FILES['gallery']['name'])) {
-            $uploadedGalleryCount = 0;
-            $fileCount = count($_FILES['gallery']['name']);
-            for ($i = 0; $i < $fileCount; $i++) {
-                if ($_FILES['gallery']['error'][$i] === UPLOAD_ERR_OK) {
-                    $singleFile = [
-                        'name' => $_FILES['gallery']['name'][$i],
-                        'type' => $_FILES['gallery']['type'][$i],
-                        'tmp_name' => $_FILES['gallery']['tmp_name'][$i],
-                        'error' => $_FILES['gallery']['error'][$i],
-                        'size' => $_FILES['gallery']['size'][$i]
-                    ];
-                    $uploadRes = handleUpload($singleFile, 'uploads/projects');
-                    if ($uploadRes['success']) {
-                        $stmtImg = $db->prepare("INSERT INTO project_images (project_id, image, sort_order) VALUES (?, ?, ?)");
-                        $stmtImg->execute([$projectId, $uploadRes['filename'], $i]);
-                        $uploadedGalleryCount++;
+            // Process multiple gallery uploads
+            if (isset($_FILES['gallery']) && is_array($_FILES['gallery']['name'])) {
+                $uploadedGalleryCount = 0;
+                $fileCount = count($_FILES['gallery']['name']);
+                for ($i = 0; $i < $fileCount; $i++) {
+                    if (isset($_FILES['gallery']['error'][$i]) && $_FILES['gallery']['error'][$i] === UPLOAD_ERR_OK) {
+                        $singleFile = [
+                            'name' => $_FILES['gallery']['name'][$i],
+                            'type' => $_FILES['gallery']['type'][$i],
+                            'tmp_name' => $_FILES['gallery']['tmp_name'][$i],
+                            'error' => $_FILES['gallery']['error'][$i],
+                            'size' => $_FILES['gallery']['size'][$i]
+                        ];
+                        $uploadRes = handleUpload($singleFile, 'uploads/projects');
+                        if ($uploadRes['success']) {
+                            $stmtImg = $db->prepare("INSERT INTO project_images (project_id, image, sort_order) VALUES (?, ?, ?)");
+                            $stmtImg->execute([$projectId, $uploadRes['filename'], $i]);
+                            $uploadedGalleryCount++;
 
-                        // If cover image was empty, set first uploaded gallery photo as cover
-                        if (empty($imagePath)) {
-                            $imagePath = $uploadRes['filename'];
-                            $db->prepare("UPDATE projects SET image = ? WHERE id = ?")->execute([$imagePath, $projectId]);
+                            // If cover image was empty, set first uploaded gallery photo as cover
+                            if (empty($imagePath)) {
+                                $imagePath = $uploadRes['filename'];
+                                $db->prepare("UPDATE projects SET image = ? WHERE id = ?")->execute([$imagePath, $projectId]);
+                            }
                         }
                     }
                 }
+                if ($uploadedGalleryCount > 0) {
+                    $flashMsg .= " ($uploadedGalleryCount foto galeri berhasil ditambahkan)";
+                }
             }
-            if ($uploadedGalleryCount > 0) {
-                $flashMsg .= " ($uploadedGalleryCount foto galeri berhasil ditambahkan)";
-            }
-        }
 
-        setFlash('success', $flashMsg);
-        redirect('MrSvz1404/projects.php');
+            setFlash('success', $flashMsg);
+            redirect('MrSvz1404/projects.php');
+        } else {
+            // Error occurred: stay on form and preserve user inputs
+            $action = ($id > 0 ? 'edit' : 'add');
+        }
     }
 }
 
-// Fetch current item if edit
-$currentItem = null;
-$galleryImages = [];
+// Fetch current item if edit and not already populated from POST
 if ($action === 'edit' && $id > 0) {
-    $stmt = $db->prepare("SELECT * FROM projects WHERE id = ? LIMIT 1");
-    $stmt->execute([$id]);
-    $currentItem = $stmt->fetch();
-    if (!$currentItem) {
-        setFlash('danger', 'Project tidak ditemukan.');
-        redirect('MrSvz1404/projects.php');
+    if ($currentItem === null) {
+        $stmt = $db->prepare("SELECT * FROM projects WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $currentItem = $stmt->fetch();
+        if (!$currentItem) {
+            setFlash('danger', 'Project tidak ditemukan.');
+            redirect('MrSvz1404/projects.php');
+        }
     }
     // Fetch gallery images
     $stmtGallery = $db->prepare("SELECT * FROM project_images WHERE project_id = ? ORDER BY sort_order ASC, id ASC");

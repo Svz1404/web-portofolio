@@ -52,8 +52,17 @@ if ($action === 'delete' && $id > 0) {
     redirect('MrSvz1404/certified.php');
 }
 
+$currentItem = null;
+$galleryImages = [];
+
+// Handle post_max_size exceeded (PHP drops $_POST and $_FILES)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 0) {
+    setFlash('danger', 'Ukuran total file yang diunggah melebihi batas maksimal server. Silakan unggah foto dengan ukuran lebih kecil.');
+    $action = ($id > 0 ? 'edit' : 'add');
+}
+
 // SAVE (ADD or EDIT)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST)) {
     $title = clean_input($_POST['title'] ?? '');
     $title_en = clean_input($_POST['title_en'] ?? '');
     $issuer = clean_input($_POST['issuer'] ?? '');
@@ -72,90 +81,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description_en = $description;
     }
 
+    // Preserve form input in case of validation or upload errors
+    $currentItem = [
+        'id' => $id,
+        'title' => $title,
+        'title_en' => $title_en,
+        'issuer' => $issuer,
+        'issue_date' => $issue_date,
+        'credential_id' => $credential_id,
+        'credential_url' => $credential_url,
+        'description' => $description,
+        'description_en' => $description_en,
+        'sort_order' => $sort_order,
+        'image' => $existingImage
+    ];
+
+    $hasError = false;
+
     if (empty($title) || empty($issuer)) {
         setFlash('danger', 'Judul sertifikat dan Institusi Penerbit wajib diisi.');
+        $hasError = true;
     } else {
         $imagePath = $existingImage;
 
         // Check if new primary image uploaded
-        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $uploadRes = handleUpload($_FILES['image'], 'uploads/certificates');
-            if ($uploadRes['success']) {
-                $imagePath = $uploadRes['filename'];
+        if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                setFlash('danger', 'Gagal upload foto sertifikat utama: ' . getUploadErrorMessage($_FILES['image']['error']));
+                $hasError = true;
             } else {
-                setFlash('danger', $uploadRes['error']);
-                redirect('MrSvz1404/certified.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+                $uploadRes = handleUpload($_FILES['image'], 'uploads/certificates');
+                if ($uploadRes['success']) {
+                    $imagePath = $uploadRes['filename'];
+                    $currentItem['image'] = $imagePath;
+                } else {
+                    setFlash('danger', 'Gagal upload foto sertifikat utama: ' . $uploadRes['error']);
+                    $hasError = true;
+                }
             }
         }
 
-        if ($id > 0) {
-            // Update
-            $stmt = $db->prepare("
-                UPDATE certificates 
-                SET title = ?, title_en = ?, issuer = ?, issue_date = ?, credential_id = ?, credential_url = ?, description = ?, description_en = ?, image = ?, sort_order = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$title, $title_en, $issuer, $issue_date, $credential_id, $credential_url, $description, $description_en, $imagePath, $sort_order, $id]);
-            $certId = $id;
-            $flashMsg = 'Sertifikat berhasil diperbarui!';
-        } else {
-            // Insert
-            $stmt = $db->prepare("
-                INSERT INTO certificates (title, title_en, issuer, issue_date, credential_id, credential_url, description, description_en, image, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([$title, $title_en, $issuer, $issue_date, $credential_id, $credential_url, $description, $description_en, $imagePath, $sort_order]);
-            $certId = (int)$db->lastInsertId();
-            $flashMsg = 'Sertifikat baru berhasil ditambahkan!';
-        }
+        if (!$hasError) {
+            if ($id > 0) {
+                // Update
+                $stmt = $db->prepare("
+                    UPDATE certificates 
+                    SET title = ?, title_en = ?, issuer = ?, issue_date = ?, credential_id = ?, credential_url = ?, description = ?, description_en = ?, image = ?, sort_order = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$title, $title_en, $issuer, $issue_date, $credential_id, $credential_url, $description, $description_en, $imagePath, $sort_order, $id]);
+                $certId = $id;
+                $flashMsg = 'Sertifikat berhasil diperbarui!';
+            } else {
+                // Insert
+                $stmt = $db->prepare("
+                    INSERT INTO certificates (title, title_en, issuer, issue_date, credential_id, credential_url, description, description_en, image, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([$title, $title_en, $issuer, $issue_date, $credential_id, $credential_url, $description, $description_en, $imagePath, $sort_order]);
+                $certId = (int)$db->lastInsertId();
+                $flashMsg = 'Sertifikat baru berhasil ditambahkan!';
+            }
 
-        // Process multiple gallery / timbal balik uploads
-        if (isset($_FILES['gallery']) && is_array($_FILES['gallery']['name'])) {
-            $uploadedGalleryCount = 0;
-            $fileCount = count($_FILES['gallery']['name']);
-            for ($i = 0; $i < $fileCount; $i++) {
-                if ($_FILES['gallery']['error'][$i] === UPLOAD_ERR_OK) {
-                    $singleFile = [
-                        'name' => $_FILES['gallery']['name'][$i],
-                        'type' => $_FILES['gallery']['type'][$i],
-                        'tmp_name' => $_FILES['gallery']['tmp_name'][$i],
-                        'error' => $_FILES['gallery']['error'][$i],
-                        'size' => $_FILES['gallery']['size'][$i]
-                    ];
-                    $uploadRes = handleUpload($singleFile, 'uploads/certificates');
-                    if ($uploadRes['success']) {
-                        $stmtImg = $db->prepare("INSERT INTO certificate_images (certificate_id, image, sort_order) VALUES (?, ?, ?)");
-                        $stmtImg->execute([$certId, $uploadRes['filename'], $i]);
-                        $uploadedGalleryCount++;
+            // Process multiple gallery / timbal balik uploads
+            if (isset($_FILES['gallery']) && is_array($_FILES['gallery']['name'])) {
+                $uploadedGalleryCount = 0;
+                $fileCount = count($_FILES['gallery']['name']);
+                for ($i = 0; $i < $fileCount; $i++) {
+                    if (isset($_FILES['gallery']['error'][$i]) && $_FILES['gallery']['error'][$i] === UPLOAD_ERR_OK) {
+                        $singleFile = [
+                            'name' => $_FILES['gallery']['name'][$i],
+                            'type' => $_FILES['gallery']['type'][$i],
+                            'tmp_name' => $_FILES['gallery']['tmp_name'][$i],
+                            'error' => $_FILES['gallery']['error'][$i],
+                            'size' => $_FILES['gallery']['size'][$i]
+                        ];
+                        $uploadRes = handleUpload($singleFile, 'uploads/certificates');
+                        if ($uploadRes['success']) {
+                            $stmtImg = $db->prepare("INSERT INTO certificate_images (certificate_id, image, sort_order) VALUES (?, ?, ?)");
+                            $stmtImg->execute([$certId, $uploadRes['filename'], $i]);
+                            $uploadedGalleryCount++;
 
-                        // If primary image was empty, set first uploaded photo as primary
-                        if (empty($imagePath)) {
-                            $imagePath = $uploadRes['filename'];
-                            $db->prepare("UPDATE certificates SET image = ? WHERE id = ?")->execute([$imagePath, $certId]);
+                            // If primary image was empty, set first uploaded photo as primary
+                            if (empty($imagePath)) {
+                                $imagePath = $uploadRes['filename'];
+                                $db->prepare("UPDATE certificates SET image = ? WHERE id = ?")->execute([$imagePath, $certId]);
+                            }
                         }
                     }
                 }
+                if ($uploadedGalleryCount > 0) {
+                    $flashMsg .= " ($uploadedGalleryCount foto tambahan/timbal balik berhasil ditambahkan)";
+                }
             }
-            if ($uploadedGalleryCount > 0) {
-                $flashMsg .= " ($uploadedGalleryCount foto tambahan/timbal balik berhasil ditambahkan)";
-            }
-        }
 
-        setFlash('success', $flashMsg);
-        redirect('MrSvz1404/certified.php');
+            setFlash('success', $flashMsg);
+            redirect('MrSvz1404/certified.php');
+        } else {
+            $action = ($id > 0 ? 'edit' : 'add');
+        }
     }
 }
 
-// Fetch current item if edit
-$currentItem = null;
-$galleryImages = [];
+// Fetch current item if edit and not already set from POST
 if ($action === 'edit' && $id > 0) {
-    $stmt = $db->prepare("SELECT * FROM certificates WHERE id = ? LIMIT 1");
-    $stmt->execute([$id]);
-    $currentItem = $stmt->fetch();
-    if (!$currentItem) {
-        setFlash('danger', 'Sertifikat tidak ditemukan.');
-        redirect('MrSvz1404/certified.php');
+    if ($currentItem === null) {
+        $stmt = $db->prepare("SELECT * FROM certificates WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $currentItem = $stmt->fetch();
+        if (!$currentItem) {
+            setFlash('danger', 'Sertifikat tidak ditemukan.');
+            redirect('MrSvz1404/certified.php');
+        }
     }
     // Fetch additional certificate images (timbal balik / multi-page)
     $stmtGallery = $db->prepare("SELECT * FROM certificate_images WHERE certificate_id = ? ORDER BY sort_order ASC, id ASC");

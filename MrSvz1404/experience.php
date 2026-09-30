@@ -20,8 +20,16 @@ if ($action === 'delete' && $id > 0) {
     redirect('MrSvz1404/experience.php');
 }
 
+$currentItem = null;
+
+// Handle post_max_size exceeded (PHP drops $_POST and $_FILES)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 0) {
+    setFlash('danger', 'Ukuran total file yang diunggah melebihi batas maksimal server. Silakan unggah foto dengan ukuran lebih kecil.');
+    $action = ($id > 0 ? 'edit' : 'add');
+}
+
 // SAVE
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST)) {
     $date_range = clean_input($_POST['date_range'] ?? '');
     $date_range_en = clean_input($_POST['date_range_en'] ?? '');
     $company = clean_input($_POST['company'] ?? '');
@@ -32,49 +40,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sort_order = (int)($_POST['sort_order'] ?? 0);
     $existingImage = $_POST['existing_image'] ?? '';
 
+    // Preserve form input in case of validation or upload errors
+    $currentItem = [
+        'id' => $id,
+        'date_range' => $date_range,
+        'date_range_en' => $date_range_en,
+        'company' => $company,
+        'role' => $role,
+        'role_en' => $role_en,
+        'details' => $details,
+        'details_en' => $details_en,
+        'sort_order' => $sort_order,
+        'image' => $existingImage
+    ];
+
+    $hasError = false;
+
     if (empty($date_range) || empty($company) || empty($role)) {
         setFlash('danger', 'Periode tanggal, Nama Perusahaan, dan Posisi/Role wajib diisi.');
+        $hasError = true;
     } else {
         $imagePath = $existingImage;
-        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $uploadRes = handleUpload($_FILES['image'], 'uploads/experience');
-            if ($uploadRes['success']) {
-                $imagePath = $uploadRes['filename'];
+        if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                setFlash('danger', 'Gagal upload foto lampiran: ' . getUploadErrorMessage($_FILES['image']['error']));
+                $hasError = true;
             } else {
-                setFlash('danger', $uploadRes['error']);
-                redirect('MrSvz1404/experience.php' . ($id > 0 ? '?action=edit&id=' . $id : '?action=add'));
+                $uploadRes = handleUpload($_FILES['image'], 'uploads/experience');
+                if ($uploadRes['success']) {
+                    $imagePath = $uploadRes['filename'];
+                    $currentItem['image'] = $imagePath;
+                } else {
+                    setFlash('danger', 'Gagal upload foto lampiran: ' . $uploadRes['error']);
+                    $hasError = true;
+                }
             }
         }
 
-        if ($id > 0) {
-            $stmt = $db->prepare("
-                UPDATE experience 
-                SET date_range = ?, date_range_en = ?, company = ?, role = ?, role_en = ?, details = ?, details_en = ?, sort_order = ?, image = ? 
-                WHERE id = ?
-            ");
-            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath, $id]);
-            setFlash('success', 'Pengalaman kerja berhasil diperbarui!');
+        if (!$hasError) {
+            if ($id > 0) {
+                $stmt = $db->prepare("
+                    UPDATE experience 
+                    SET date_range = ?, date_range_en = ?, company = ?, role = ?, role_en = ?, details = ?, details_en = ?, sort_order = ?, image = ? 
+                    WHERE id = ?
+                ");
+                $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath, $id]);
+                setFlash('success', 'Pengalaman kerja berhasil diperbarui!');
+            } else {
+                $stmt = $db->prepare("
+                    INSERT INTO experience (date_range, date_range_en, company, role, role_en, details, details_en, sort_order, image) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath]);
+                setFlash('success', 'Pengalaman kerja baru berhasil ditambahkan!');
+            }
+            redirect('MrSvz1404/experience.php');
         } else {
-            $stmt = $db->prepare("
-                INSERT INTO experience (date_range, date_range_en, company, role, role_en, details, details_en, sort_order, image) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([$date_range, $date_range_en, $company, $role, $role_en, $details, $details_en, $sort_order, $imagePath]);
-            setFlash('success', 'Pengalaman kerja baru berhasil ditambahkan!');
+            $action = ($id > 0 ? 'edit' : 'add');
         }
-        redirect('MrSvz1404/experience.php');
     }
 }
 
 // Fetch current
-$currentItem = null;
 if ($action === 'edit' && $id > 0) {
-    $stmt = $db->prepare("SELECT * FROM experience WHERE id = ? LIMIT 1");
-    $stmt->execute([$id]);
-    $currentItem = $stmt->fetch();
-    if (!$currentItem) {
-        setFlash('danger', 'Data pengalaman tidak ditemukan.');
-        redirect('MrSvz1404/experience.php');
+    if ($currentItem === null) {
+        $stmt = $db->prepare("SELECT * FROM experience WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $currentItem = $stmt->fetch();
+        if (!$currentItem) {
+            setFlash('danger', 'Data pengalaman tidak ditemukan.');
+            redirect('MrSvz1404/experience.php');
+        }
     }
 }
 
