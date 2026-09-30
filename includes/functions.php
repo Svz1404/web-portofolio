@@ -181,12 +181,20 @@ function handleUpload($file, $subFolder = 'uploads', $allowedTypes = ['image/jpe
     $targetFile = $targetDir . $uniqueName;
 
     if (!@move_uploaded_file($file['tmp_name'], $targetFile)) {
-        if ($isProduction) {
-            return ['success' => false, 'error' => 'Server Vercel bersifat Read-Only. Penambahan data atau foto harus dilakukan di localhost (komputer lokal) lalu di-upload ke GitHub.'];
+        if (!@copy($file['tmp_name'], $targetFile)) {
+            if ($isProduction) {
+                return ['success' => false, 'error' => 'Server Vercel bersifat Read-Only. Penambahan data atau foto harus dilakukan di localhost (komputer lokal) lalu di-upload ke GitHub.'];
+            }
+            return ['success' => false, 'error' => 'Gagal memindahkan file yang diunggah ke folder penyimpanan.'];
         }
-        return ['success' => false, 'error' => 'Gagal memindahkan file yang diunggah ke folder penyimpanan.'];
+        @unlink($file['tmp_name']);
     }
-    @chmod($targetFile, 0666);
+    @chmod($targetFile, 0777);
+
+    // On Windows, explicitly grant Everyone full permissions to prevent Windows Permission lockouts
+    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+        @exec('icacls "' . $targetFile . '" /grant Everyone:F /Q');
+    }
 
     $relativePath = trim(str_replace('\\', '/', $subFolder), '/') . '/' . $uniqueName;
     return ['success' => true, 'filename' => $relativePath];
